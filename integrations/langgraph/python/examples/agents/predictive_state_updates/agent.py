@@ -171,21 +171,10 @@ async def chat_node(state: AgentState, config: Optional[RunnableConfig] = None):
                 }
             )
 
-        # For other tools (e.g. Excalidraw MCP tools), add a placeholder
-        # tool response and loop back so the agent can make follow-up calls
-        tool_response = {
-            "role": "tool",
-            "content": f"Tool {tool_call_name} executed successfully.",
-            "tool_call_id": tool_call_id
-        }
-        messages = messages + [tool_response]
+        # For other tools (e.g. Excalidraw MCP tools), the MCPAppsMiddleware
+        # handles execution at the protocol level. Just end the graph and let
+        # the middleware process the tool call.
 
-        return Command(
-            goto="chat_node",
-            update={
-                "messages": messages
-            }
-        )
 
     # If no tool was called, go to end
     return Command(
