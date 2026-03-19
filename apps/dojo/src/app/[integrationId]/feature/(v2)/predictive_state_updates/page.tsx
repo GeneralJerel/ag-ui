@@ -318,7 +318,7 @@ const DocumentEditor = () => {
   // Sync user edits to agent state
   useEffect(() => {
     if (!isMountedRef.current) return;
-    setPlaceholderVisible(text.length === 0 && !isFocused);
+    setPlaceholderVisible(text.length === 0);
 
     if (!isLoading && text !== lastPlainTextRef.current) {
       lastPlainTextRef.current = text;
