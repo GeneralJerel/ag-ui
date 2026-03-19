@@ -76,6 +76,42 @@ AG-UI is complementary to the other 2 top agentic protocols
 - 🧠 Real-time context enrichment
 - 🛠️ Frontend tool integration
 - 🧑‍💻 Human-in-the-loop collaboration
+- 🎨 **Open Generative UI via MCP Apps** — agents render rich, interactive visuals directly in the chat
+
+## 🎨 Open Generative UI
+
+AG-UI supports **Open Generative UI** through the [MCP Apps](https://blog.modelcontextprotocol.io/posts/2025-11-21-mcp-apps/) specification, enabling agents to render rich, interactive visual content — not just text — directly inside user-facing applications.
+
+Any MCP server that exposes UI-enabled tools can become a generative UI surface. The agent calls the tool, and the result renders inline as an interactive widget, diagram, or visualization — no custom frontend code required per tool.
+
+### Excalidraw MCP Integration
+
+The AG-UI Dojo includes a live integration with the [Excalidraw MCP server](https://mcp.excalidraw.com), demonstrating how agents can generate beautiful, animated, hand-drawn diagrams on the fly:
+
+- Agent calls `read_me` to learn the Excalidraw element format
+- Agent calls `create_view` with a JSON array of elements
+- Elements stream in one by one with draw-on animations and progressive camera reveals
+- Users can expand, zoom, and interact with the diagram in fullscreen
+- Diagrams support editing, checkpoints, and incremental updates
+
+This works with **any LLM** — the Excalidraw MCP server handles all rendering. The agent just needs to produce the right element JSON.
+
+**Try it:** [AG-UI Dojo → Predictive State Updates](https://dojo.ag-ui.com/langgraph/feature/predictive_state_updates) — ask the agent to *"create an excalidraw diagram explaining how WebSockets work"*
+
+### How It Works
+
+```
+User prompt → Agent (any LLM) → calls Excalidraw MCP tools → elements stream to iframe → animated diagram
+```
+
+The integration uses the `MCPAppsMiddleware` to connect any AG-UI agent to MCP servers with UI-enabled tools. The middleware:
+
+1. Discovers tools with `ui/resourceUri` metadata from configured MCP servers
+2. Injects those tools into the agent's available tool set
+3. Executes tool calls against the MCP server when the agent uses them
+4. Renders results in a sandboxed iframe with the MCP app's UI
+
+This pattern is **fully open** — any MCP server can provide generative UI surfaces, and any AG-UI agent can use them.
 
 
 ## 🛠 Supported Integrations
