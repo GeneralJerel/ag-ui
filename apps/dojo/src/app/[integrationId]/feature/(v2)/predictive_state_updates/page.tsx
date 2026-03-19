@@ -9,19 +9,23 @@ import { diffWords } from "diff";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useEffect, useState, useRef } from "react";
-import { 
+import {
   useAgent,
   UseAgentUpdate,
   useHumanInTheLoop,
   useConfigureSuggestions,
+  useComponent,
   CopilotChat,
   CopilotSidebar,
 } from "@copilotkit/react-core/v2";
 import { z } from "zod";
+import { WidgetRenderer, WidgetRendererProps } from "@/components/generative-ui/widget-renderer";
+import { McpWidgetZoom } from "@/components/mcp-widget-zoom";
+import { AGENT_SKILLS } from "./skills";
 import { useMobileView } from "@/utils/use-mobile-view";
 import { useMobileChat } from "@/utils/use-mobile-chat";
 import { useURLParams } from "@/contexts/url-params-context";
-import { CopilotKit } from "@copilotkit/react-core";
+import { CopilotKit, useCopilotAdditionalInstructions } from "@copilotkit/react-core";
 
 const extensions = [StarterKit];
 
@@ -165,6 +169,7 @@ export default function PredictiveStateUpdates({ params }: PredictiveStateUpdate
           />
         )}
         <DocumentEditor />
+        <McpWidgetZoom />
       </div>
     </CopilotKit>
   );
@@ -196,7 +201,39 @@ const DocumentEditor = () => {
         message: "Please write a story about a mermaid named Luna.",
       },
       { title: "Add character", message: "Please add a character named Courage." },
+      {
+        title: "Visualize an algorithm",
+        message: "Create an interactive visualization of a binary search algorithm.",
+      },
     ],
+    available: "always",
+  });
+
+  // Register the WidgetRenderer for generative UI (interactive HTML/SVG visualizations)
+  useComponent({
+    name: "widgetRenderer",
+    description:
+      "Renders interactive HTML/SVG visualizations in a sandboxed iframe. " +
+      "Use for algorithm visualizations, diagrams, interactive widgets, " +
+      "simulations, math plots, and any visual explanation.",
+    parameters: WidgetRendererProps,
+    render: WidgetRenderer,
+  });
+
+  // Handle openLink messages from widget iframes
+  useEffect(() => {
+    const handler = (e: MessageEvent) => {
+      if (e.data?.type === "open-link" && typeof e.data.url === "string") {
+        window.open(e.data.url, "_blank", "noopener,noreferrer");
+      }
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, []);
+
+  // Inject agent skills (Excalidraw diagrams, SVG, interactive widgets, etc.)
+  useCopilotAdditionalInstructions({
+    instructions: AGENT_SKILLS,
     available: "always",
   });
 

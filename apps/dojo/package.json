@@ -28,6 +28,7 @@
     "@ag-ui/langgraph": "workspace:*",
     "@ag-ui/llamaindex": "workspace:*",
     "@ag-ui/mastra": "workspace:*",
+    "@ag-ui/mcp-apps-middleware": "workspace:*",
     "@ag-ui/middleware-starter": "workspace:*",
     "@ag-ui/pydantic-ai": "workspace:*",
     "@ag-ui/server-starter": "workspace:*",

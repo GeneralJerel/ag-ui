@@ -27,6 +27,7 @@ import { A2AClient } from "@a2a-js/sdk/client";
 import { LangChainAgent } from "@ag-ui/langchain";
 import { BuiltInAgent } from "@copilotkit/runtime/v2";
 import { A2UIMiddleware, A2UI_PROMPT } from "@ag-ui/a2ui-middleware";
+import { MCPAppsMiddleware } from "@ag-ui/mcp-apps-middleware";
 import { Ag2Agent } from "@ag-ui/ag2";
 import { LangroidHttpAgent } from "@ag-ui/langroid";
 
@@ -115,7 +116,19 @@ export const agentsIntegrations = {
   langgraph: async () => ({
     ...mapAgents(
       (graphId) => {
-        return new LangGraphAgent({ deploymentUrl: envVars.langgraphPythonUrl, graphId })
+        const agent = new LangGraphAgent({ deploymentUrl: envVars.langgraphPythonUrl, graphId });
+        if (graphId === "predictive_state_updates") {
+          agent.use(
+            new MCPAppsMiddleware({
+              mcpServers: [{
+                type: "http",
+                url: process.env.MCP_SERVER_URL || "https://mcp.excalidraw.com",
+                serverId: "example_mcp_app",
+              }],
+            })
+          );
+        }
+        return agent;
       },
       {
         agentic_chat: "agentic_chat",
