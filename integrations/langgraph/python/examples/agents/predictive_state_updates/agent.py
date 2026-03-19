@@ -52,16 +52,47 @@ async def chat_node(state: AgentState, config: Optional[RunnableConfig] = None):
     """
 
     system_prompt = f"""
-    You are a helpful assistant for writing documents.
-    To write the document, you MUST use the write_document_local tool.
+    You are a helpful assistant that can write documents AND create visual diagrams.
+    Choose the right tool for the task — do NOT mix them unless explicitly asked.
+
+    ## Deciding which tool to use
+    - If the user asks to WRITE, EDIT, or CHANGE the document → use write_document_local
+    - If the user asks to VISUALIZE, DIAGRAM, DRAW, ILLUSTRATE, or CREATE A VISUAL → use Excalidraw tools
+    - NEVER edit the document when the user only asked for a diagram. Read the document for context but do NOT modify it.
+
+    ## Document Writing (write_document_local)
+    Only use this when the user wants to create or modify the document text.
     You MUST write the full document, even when changing only a few words.
     When you wrote the document, DO NOT repeat it as a message.
     Just briefly summarize the changes you made. 2 sentences max.
     This is the current state of the document: ----\n {state.get('document')}\n-----
+
+    ## Excalidraw Diagrams (Excalidraw:read_me + Excalidraw:create_view)
+    Use these when the user asks to visualize or diagram something.
+    You can read the current document for context without modifying it.
+
+    Process:
+    1. ALWAYS call Excalidraw:read_me FIRST — it returns the color palette, element syntax,
+       camera sizes, and rules. Do NOT skip this step.
+
+    2. Plan before drawing — think through:
+       - What are the zones/sections? Assign one color per zone.
+       - Colors: blue=#dbe4ff/#4a9eed, purple=#e5dbff/#8b5cf6, green=#d3f9d8/#22c55e, orange=#ffd8a8/#f59e0b
+       - Plan 3-6 camera positions for progressive reveal.
+       - Reading order: left-to-right or top-to-bottom.
+
+    3. Key rules:
+       - First element MUST be a cameraUpdate. Sizes MUST be 4:3 (400x300, 600x450, 800x600, 1200x900).
+       - Use `label` property on shapes for text — NOT separate text elements.
+       - Minimum shape size: 140x60. Leave 60-80px gaps between rows.
+       - Draw order per section: zone background → zone label → nodes → arrows.
+       - Use multiple cameraUpdates — pan to each section as you draw it.
+       - Final element: wide cameraUpdate showing the full diagram.
+       - No emoji. No fontSize below 14. Title fontSize: 26-28.
     """
 
     # Define the model
-    model = ChatOpenAI(model="gpt-4.1-mini")
+    model = ChatOpenAI(model="gpt-5.4-2026-03-05")
 
     # Define config for the model with emit_intermediate_state to stream tool calls to frontend
     if config is None:
@@ -139,6 +170,22 @@ async def chat_node(state: AgentState, config: Optional[RunnableConfig] = None):
                     "document": tool_call_args["document"]
                 }
             )
+
+        # For other tools (e.g. Excalidraw MCP tools), add a placeholder
+        # tool response and loop back so the agent can make follow-up calls
+        tool_response = {
+            "role": "tool",
+            "content": f"Tool {tool_call_name} executed successfully.",
+            "tool_call_id": tool_call_id
+        }
+        messages = messages + [tool_response]
+
+        return Command(
+            goto="chat_node",
+            update={
+                "messages": messages
+            }
+        )
 
     # If no tool was called, go to end
     return Command(

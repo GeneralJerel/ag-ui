@@ -11,21 +11,21 @@ import StarterKit from "@tiptap/starter-kit";
 import { useEffect, useState, useRef } from "react";
 import {
   useAgent,
+  useAgentContext,
   UseAgentUpdate,
   useHumanInTheLoop,
   useConfigureSuggestions,
-  useComponent,
+  useDefaultRenderTool,
   CopilotChat,
   CopilotSidebar,
 } from "@copilotkit/react-core/v2";
 import { z } from "zod";
-import { WidgetRenderer, WidgetRendererProps } from "@/components/generative-ui/widget-renderer";
 import { McpWidgetZoom } from "@/components/mcp-widget-zoom";
 import { AGENT_SKILLS } from "./skills";
 import { useMobileView } from "@/utils/use-mobile-view";
 import { useMobileChat } from "@/utils/use-mobile-chat";
 import { useURLParams } from "@/contexts/url-params-context";
-import { CopilotKit, useCopilotAdditionalInstructions } from "@copilotkit/react-core";
+import { CopilotKit } from "@copilotkit/react-core";
 
 const extensions = [StarterKit];
 
@@ -188,7 +188,31 @@ const DocumentEditor = () => {
     },
   });
   const [placeholderVisible, setPlaceholderVisible] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
   const [currentDocument, setCurrentDocument] = useState("");
+  const wasRunning = useRef(false);
+  const isMountedRef = useRef(true);
+  const skipNextSyncRef = useRef(false);
+
+  // Cleanup on unmount to prevent state updates after component is removed
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  // Track editor focus state
+  useEffect(() => {
+    if (!editor) return;
+    const handleFocus = () => setIsFocused(true);
+    const handleBlur = () => setIsFocused(false);
+    editor.on("focus", handleFocus);
+    editor.on("blur", handleBlur);
+    return () => {
+      editor.off("focus", handleFocus);
+      editor.off("blur", handleBlur);
+    };
+  }, [editor]);
 
   useConfigureSuggestions({
     suggestions: [
@@ -209,18 +233,7 @@ const DocumentEditor = () => {
     available: "always",
   });
 
-  // Register the WidgetRenderer for generative UI (interactive HTML/SVG visualizations)
-  useComponent({
-    name: "widgetRenderer",
-    description:
-      "Renders interactive HTML/SVG visualizations in a sandboxed iframe. " +
-      "Use for algorithm visualizations, diagrams, interactive widgets, " +
-      "simulations, math plots, and any visual explanation.",
-    parameters: WidgetRendererProps,
-    render: WidgetRenderer,
-  });
-
-  // Handle openLink messages from widget iframes
+  // Handle openLink messages from MCP widget iframes
   useEffect(() => {
     const handler = (e: MessageEvent) => {
       if (e.data?.type === "open-link" && typeof e.data.url === "string") {
@@ -232,9 +245,20 @@ const DocumentEditor = () => {
   }, []);
 
   // Inject agent skills (Excalidraw diagrams, SVG, interactive widgets, etc.)
-  useCopilotAdditionalInstructions({
-    instructions: AGENT_SKILLS,
-    available: "always",
+  useAgentContext({
+    description: "Skills and instructions for generating Excalidraw diagrams, SVG visualizations, and interactive widgets",
+    value: AGENT_SKILLS,
+  });
+
+  // Show tool calls in chat
+  useDefaultRenderTool({
+    render: ({ name, status, parameters }) => (
+      <div className="text-xs text-gray-500 px-3 py-2 rounded bg-gray-50 my-1">
+        <span className="font-medium">{name}</span>
+        {status === "executing" && <span className="ml-2 animate-pulse">running...</span>}
+        {status === "complete" && <span className="ml-2">done</span>}
+      </div>
+    ),
   });
 
   const { agent } = useAgent({
@@ -246,19 +270,19 @@ const DocumentEditor = () => {
   const setAgentState = (s: AgentState) => agent.setState(s);
   const isLoading = agent.isRunning;
 
-  // Track when a run transitions from running to not running (replaces nodeName == "end")
-  const wasRunning = useRef(false);
-
+  // Handle loading state transitions
   useEffect(() => {
     if (isLoading) {
       setCurrentDocument(editor?.getText() || "");
     }
     editor?.setEditable(!isLoading);
-  }, [isLoading]);
+  }, [isLoading, editor]);
 
+  // Handle final state update when run completes
   useEffect(() => {
+    if (!isMountedRef.current) return;
+
     if (wasRunning.current && !isLoading) {
-      // Run just finished - set the text one final time
       if (currentDocument.trim().length > 0 && currentDocument !== agentState?.document) {
         const newDocument = agentState?.document || "";
         const diff = diffPartialText(currentDocument, newDocument, true);
@@ -267,8 +291,9 @@ const DocumentEditor = () => {
       }
     }
     wasRunning.current = isLoading;
-  }, [isLoading]);
+  }, [isLoading, currentDocument, agentState?.document, editor]);
 
+  // Handle streaming updates while agent is running
   useEffect(() => {
     if (isLoading) {
       if (currentDocument.trim().length > 0) {
@@ -281,20 +306,42 @@ const DocumentEditor = () => {
         editor?.commands.setContent(markdown);
       }
     }
-  }, [agentState?.document]);
+  }, [agentState?.document, isLoading, currentDocument, editor]);
 
   const text = editor?.getText() || "";
 
+  // Sync user edits to agent state
   useEffect(() => {
-    setPlaceholderVisible(text.length === 0);
+    if (!isMountedRef.current) return;
+    if (skipNextSyncRef.current) {
+      skipNextSyncRef.current = false;
+      return;
+    }
 
-    if (!isLoading) {
+    setPlaceholderVisible(text.length === 0 && !isFocused);
+
+    if (!isLoading && text !== currentDocument) {
       setCurrentDocument(text);
       setAgentState({
         document: text,
       });
     }
-  }, [text]);
+  }, [text, isLoading, currentDocument, isFocused, setAgentState]);
+
+  // Shared confirm/reject handlers
+  const handleReject = () => {
+    editor?.commands.setContent(fromMarkdown(currentDocument));
+    setAgentState({ document: currentDocument });
+  };
+  const handleConfirm = () => {
+    const doc = agentState?.document || "";
+    editor?.commands.setContent(fromMarkdown(doc));
+    // Skip the next text sync to prevent overwriting agentState with plain text
+    skipNextSyncRef.current = true;
+    const plainText = editor?.getText() || "";
+    setCurrentDocument(plainText);
+    setAgentState({ document: doc });
+  };
 
   // TODO(steve): Remove this when all agents have been updated to use write_document tool.
   useHumanInTheLoop(
@@ -306,15 +353,8 @@ const DocumentEditor = () => {
           args={args}
           respond={respond}
           status={status}
-          onReject={() => {
-            editor?.commands.setContent(fromMarkdown(currentDocument));
-            setAgentState({ document: currentDocument });
-          }}
-          onConfirm={() => {
-            editor?.commands.setContent(fromMarkdown(agentState?.document || ""));
-            setCurrentDocument(agentState?.document || "");
-            setAgentState({ document: agentState?.document || "" });
-          }}
+          onReject={handleReject}
+          onConfirm={handleConfirm}
         />
       ),
     },
@@ -337,15 +377,8 @@ const DocumentEditor = () => {
               args={args}
               respond={respond}
               status={status}
-              onReject={() => {
-                editor?.commands.setContent(fromMarkdown(currentDocument));
-                setAgentState({ document: currentDocument });
-              }}
-              onConfirm={() => {
-                editor?.commands.setContent(fromMarkdown(agentState?.document || ""));
-                setCurrentDocument(agentState?.document || "");
-                setAgentState({ document: agentState?.document || "" });
-              }}
+              onReject={handleReject}
+              onConfirm={handleConfirm}
             />
           );
         }
