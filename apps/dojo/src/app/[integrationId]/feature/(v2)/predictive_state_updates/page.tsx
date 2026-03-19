@@ -189,10 +189,12 @@ const DocumentEditor = () => {
   });
   const [placeholderVisible, setPlaceholderVisible] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
-  const [currentDocument, setCurrentDocument] = useState("");
+  // Stores the markdown document for diffing against agent state
+  const currentDocumentRef = useRef("");
+  // Stores the last plain text for detecting user edits
+  const lastPlainTextRef = useRef("");
   const wasRunning = useRef(false);
   const isMountedRef = useRef(true);
-  const skipNextSyncRef = useRef(false);
 
   // Cleanup on unmount to prevent state updates after component is removed
   useEffect(() => {
@@ -273,7 +275,8 @@ const DocumentEditor = () => {
   // Handle loading state transitions
   useEffect(() => {
     if (isLoading) {
-      setCurrentDocument(editor?.getText() || "");
+      // Snapshot the current markdown document before agent starts modifying it
+      currentDocumentRef.current = agentState?.document || editor?.getText() || "";
     }
     editor?.setEditable(!isLoading);
   }, [isLoading, editor]);
@@ -283,109 +286,80 @@ const DocumentEditor = () => {
     if (!isMountedRef.current) return;
 
     if (wasRunning.current && !isLoading) {
-      if (currentDocument.trim().length > 0 && currentDocument !== agentState?.document) {
-        const newDocument = agentState?.document || "";
-        const diff = diffPartialText(currentDocument, newDocument, true);
-        const markdown = fromMarkdown(diff);
-        editor?.commands.setContent(markdown);
+      const saved = currentDocumentRef.current;
+      const newDoc = agentState?.document || "";
+      if (saved.trim().length > 0 && saved !== newDoc) {
+        const diff = diffPartialText(saved, newDoc, true);
+        editor?.commands.setContent(fromMarkdown(diff));
       }
+      // Update refs to match the final state
+      currentDocumentRef.current = newDoc;
+      lastPlainTextRef.current = editor?.getText() || "";
     }
     wasRunning.current = isLoading;
-  }, [isLoading, currentDocument, agentState?.document, editor]);
+  }, [isLoading]);
 
   // Handle streaming updates while agent is running
   useEffect(() => {
     if (isLoading) {
-      if (currentDocument.trim().length > 0) {
-        const newDocument = agentState?.document || "";
-        const diff = diffPartialText(currentDocument, newDocument);
-        const markdown = fromMarkdown(diff);
-        editor?.commands.setContent(markdown);
+      const saved = currentDocumentRef.current;
+      const newDoc = agentState?.document || "";
+      if (saved.trim().length > 0) {
+        const diff = diffPartialText(saved, newDoc);
+        editor?.commands.setContent(fromMarkdown(diff));
       } else {
-        const markdown = fromMarkdown(agentState?.document || "");
-        editor?.commands.setContent(markdown);
+        editor?.commands.setContent(fromMarkdown(newDoc));
       }
     }
-  }, [agentState?.document, isLoading, currentDocument, editor]);
+  }, [agentState?.document]);
 
   const text = editor?.getText() || "";
 
   // Sync user edits to agent state
   useEffect(() => {
     if (!isMountedRef.current) return;
-    if (skipNextSyncRef.current) {
-      skipNextSyncRef.current = false;
-      return;
-    }
-
     setPlaceholderVisible(text.length === 0 && !isFocused);
 
-    if (!isLoading && text !== currentDocument) {
-      setCurrentDocument(text);
+    if (!isLoading && text !== lastPlainTextRef.current) {
+      lastPlainTextRef.current = text;
+      currentDocumentRef.current = text;
       setAgentState({
         document: text,
       });
     }
-  }, [text, isLoading, currentDocument, isFocused, setAgentState]);
+  }, [text, isLoading, isFocused, setAgentState]);
 
-  // Shared confirm/reject handlers
-  const handleReject = () => {
-    editor?.commands.setContent(fromMarkdown(currentDocument));
-    setAgentState({ document: currentDocument });
-  };
-  const handleConfirm = () => {
-    const doc = agentState?.document || "";
-    editor?.commands.setContent(fromMarkdown(doc));
-    // Skip the next text sync to prevent overwriting agentState with plain text
-    skipNextSyncRef.current = true;
-    const plainText = editor?.getText() || "";
-    setCurrentDocument(plainText);
-    setAgentState({ document: doc });
-  };
-
-  // TODO(steve): Remove this when all agents have been updated to use write_document tool.
+  // Auto-accept confirm_changes and write_document tool calls
   useHumanInTheLoop(
     {
       agentId: "predictive_state_updates",
       name: "confirm_changes",
-      render: ({ args, respond, status }) => (
-        <ConfirmChanges
-          args={args}
-          respond={respond}
-          status={status}
-          onReject={handleReject}
-          onConfirm={handleConfirm}
-        />
-      ),
+      render: ({ respond, status }) => {
+        if (status === "executing" && respond) {
+          respond({ accepted: true });
+        }
+        return <></>;
+      },
     },
-    [agentState?.document],
+    [],
   );
 
-  // Action to write the document.
   useHumanInTheLoop(
     {
       agentId: "predictive_state_updates",
       name: "write_document",
       description: `Present the proposed changes to the user for review`,
-       parameters: z.object({
+      parameters: z.object({
         document: z.string().describe("The full updated document in markdown format"),
-      }) ,
-      render({ args, status, respond }: { args: { document?: string }; status: string; respond?: (result: unknown) => Promise<void> }) {
-        if (status === "executing") {
-          return (
-            <ConfirmChanges
-              args={args}
-              respond={respond}
-              status={status}
-              onReject={handleReject}
-              onConfirm={handleConfirm}
-            />
-          );
+      }),
+      render({ status, respond }: { status: string; respond?: (result: unknown) => Promise<void> }) {
+        if (status === "executing" && respond) {
+          respond({ accepted: true });
         }
         return <></>;
       },
     },
-    [agentState?.document],
+    [],
   );
 
   return (
@@ -400,72 +374,6 @@ const DocumentEditor = () => {
   );
 };
 
-interface ConfirmChangesProps {
-  args: any;
-  respond: any;
-  status: any;
-  onReject: () => void;
-  onConfirm: () => void;
-}
-
-function ConfirmChanges({ args, respond, status, onReject, onConfirm }: ConfirmChangesProps) {
-  const [accepted, setAccepted] = useState<boolean | null>(null);
-  return (
-    <div
-      data-testid="confirm-changes-modal"
-      className="bg-white p-6 rounded shadow-lg border border-gray-200 mt-5 mb-5"
-    >
-      <h2 className="text-lg font-bold mb-4">Confirm Changes</h2>
-      <p className="mb-6">Do you want to accept the changes?</p>
-      {accepted === null && (
-        <div className="flex justify-end space-x-4">
-          <button
-            data-testid="reject-button"
-            className={`bg-gray-200 text-black py-2 px-4 rounded disabled:opacity-50 ${
-              status === "executing" ? "cursor-pointer" : "cursor-default"
-            }`}
-            disabled={status !== "executing"}
-            onClick={() => {
-              if (respond) {
-                setAccepted(false);
-                onReject();
-                respond({ accepted: false });
-              }
-            }}
-          >
-            Reject
-          </button>
-          <button
-            data-testid="confirm-button"
-            className={`bg-black text-white py-2 px-4 rounded disabled:opacity-50 ${
-              status === "executing" ? "cursor-pointer" : "cursor-default"
-            }`}
-            disabled={status !== "executing"}
-            onClick={() => {
-              if (respond) {
-                setAccepted(true);
-                onConfirm();
-                respond({ accepted: true });
-              }
-            }}
-          >
-            Confirm
-          </button>
-        </div>
-      )}
-      {accepted !== null && (
-        <div className="flex justify-end">
-          <div
-            data-testid="status-display"
-            className="mt-4 bg-gray-200 text-black py-2 px-4 rounded inline-block"
-          >
-            {accepted ? "✓ Accepted" : "✗ Rejected"}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 function fromMarkdown(text: string) {
   const md = new MarkdownIt({
