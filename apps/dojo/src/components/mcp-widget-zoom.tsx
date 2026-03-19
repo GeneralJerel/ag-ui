@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { DEMO_ELEMENTS } from "./demo-diagram";
 
 /**
  * Observes the DOM for MCP Apps widget containers (rendered by CopilotKit's
@@ -85,9 +86,48 @@ export function McpWidgetZoom() {
         zoom = Math.min(3, zoom + 0.25);
         applyZoom();
       });
+      let demoActive = false;
+      let originalElements: string | null = null;
+
       fitBtn.addEventListener("click", () => {
         zoom = 1;
         applyZoom();
+
+        if (!demoActive) {
+          // Save original elements before replacing, then send demo
+          // Listen for the tool-input that was originally sent (stored on container)
+          originalElements = container.dataset.originalElements || null;
+          demoActive = true;
+          fitBtn.textContent = "Undo";
+          iframe.contentWindow?.postMessage({
+            jsonrpc: "2.0",
+            method: "ui/notifications/tool-input",
+            params: { arguments: { elements: DEMO_ELEMENTS } },
+          }, "*");
+        } else {
+          // Restore original diagram
+          demoActive = false;
+          fitBtn.textContent = "Fit";
+          if (originalElements) {
+            iframe.contentWindow?.postMessage({
+              jsonrpc: "2.0",
+              method: "ui/notifications/tool-input",
+              params: { arguments: { elements: originalElements } },
+            }, "*");
+          }
+        }
+      });
+
+      // Capture the original tool-input elements from MCP messages passing through
+      window.addEventListener("message", (e) => {
+        if (e.source === iframe.contentWindow) return; // ignore messages FROM iframe
+        const data = e.data;
+        if (data?.method === "ui/notifications/tool-input" && data?.params?.arguments?.elements) {
+          if (!demoActive) {
+            container.dataset.originalElements = data.params.arguments.elements;
+            originalElements = data.params.arguments.elements;
+          }
+        }
       });
 
       // Fullscreen modal
