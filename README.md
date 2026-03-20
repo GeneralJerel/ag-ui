@@ -82,6 +82,8 @@ AG-UI is complementary to the other 2 top agentic protocols
 
 AG-UI supports **Open Generative UI** through the [MCP Apps](https://blog.modelcontextprotocol.io/posts/2025-11-21-mcp-apps/) specification, enabling agents to render rich, interactive visual content — not just text — directly inside user-facing applications.
 
+📖 **[Read the Open Generative UI docs →](https://docs.copilotkit.ai/generative-ui/mcp-apps)**
+
 Any MCP server that exposes UI-enabled tools can become a generative UI surface. The agent calls the tool, and the result renders inline as an interactive widget, diagram, or visualization — no custom frontend code required per tool.
 
 ### Excalidraw MCP Integration
@@ -175,7 +177,7 @@ AG-UI was born from CopilotKit's initial **partnership** with LangGraph and Crew
 ## Generative UI
 | Framework | Status | AG-UI Resources |
 | ---------- | ------- | ---------------- |
-| [MCP Apps](https://blog.modelcontextprotocol.io/posts/2025-11-21-mcp-apps/) | ✅ Supported | ➡️ [Docs](https://docs.copilotkit.ai/generative-ui-specs/mcp-apps) 🎮 [Demos]() |
+| [MCP Apps](https://blog.modelcontextprotocol.io/posts/2025-11-21-mcp-apps/) | ✅ Supported | ➡️ [Docs](https://docs.copilotkit.ai/generative-ui/mcp-apps) 🎮 [Demos]() |
 
 
 ## SDKs
